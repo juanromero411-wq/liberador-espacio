@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    image: liberador-espacio
+    ports:
+      - "127.0.0.1:${PUERTO:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ${CARPETA_A_ESCANEAR:-./datos}
+        target: /mnt/disco
