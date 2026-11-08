@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liberador de espacio</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #050b1a; color: #fff; font-family: system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 120px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: #374c79; margin: 0 0 18px; font-size: 14px; }
+  .barra { display: flex; gap: 8px; flex-wrap: wrap; }
+  select, input[type=text] { background: #12224a; color: #fff; border: 1px solid #1d3a7a;
+         border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+  input[type=text] { flex: 1; min-width: 200px; }
+  button { background: #1f7bff; color: #fff; border: 0; border-radius: 10px;
+           padding: 10px 16px; font-size: 15px; cursor: pointer; }
+  button.sec { background: #12224a; border: 1px solid #1d3a7a; color: #cfe0ff; }
+  button.peligro { background: #d63b4d; }
+  button:disabled { opacity: .5; cursor: wait; }
+  #estado { color: #8fa6d6; margin: 14px 0; min-height: 22px; }
+  .cuar { background: #12224a; border: 1px solid #1d3a7a; border-radius: 12px; padding: 10px 12px;
+          margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
+          gap: 8px; flex-wrap: wrap; font-size: 14px; }
+  .grupo { background: #0a1430; border: 1px solid #1d3a7a; border-radius: 14px;
+           padding: 12px; margin-bottom: 12px; }
+  .gt { color: #4da3ff; margin-bottom: 6px; font-weight: 600; }
+  label { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 14px;
+          word-break: break-all; }
+  #acciones { position: fixed; left: 0; right: 0; bottom: 0; background: #060d20;
+              border-top: 1px solid #1d3a7a; padding: 12px 16px; display: flex; gap: 10px;
+              align-items: center; flex-wrap: wrap; justify-content: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Liberador de espacio</h1>
+  <p class="sub">Encuentra archivos duplicados y libera espacio de forma segura.</p>
+
+  <div class="barra">
+    <select id="disco"></select>
+    <input type="text" id="sub" placeholder="Subcarpeta (opcional), ej: Users\User\Pictures">
+    <button id="btnEscanear">Escanear</button>
+  </div>
+
+  <p id="estado"></p>
+  <div id="cuarentenas"></div>
+  <div id="resultado"></div>
+</main>
+
+<div id="acciones" hidden>
+  <button class="sec" id="btnAuto">Seleccionar copias automáticamente</button>
+  <span id="seleccion"></span>
+  <button class="peligro" id="btnMover">Mover a cuarentena</button>
+</div>
+
+<script>
+  let grupos = [];
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function fmt(b) {
+    const u = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+    return b.toFixed(i ? 1 : 0) + " " + u[i];
+  }
+
+  async function api(url, datos) {
+    const opciones = datos
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) }
+      : undefined;
+    const r = await fetch(url, opciones);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error");
+    return j;
+  }
+
+  async function cargarDiscos() {
+    const discos = await api("/api/discos");
+    const actual = $("disco").value;
+    $("disco").innerHTML = discos.map(d => `<option value="${esc(d.ruta)}">${esc(d.ruta)}</option>`).join("");
+    if (actual) $("disco").value = actual;
+    if (!discos.length) $("estado").textContent = "No se encontraron discos disponibles.";
+
+    $("cuarentenas").innerHTML = discos.filter(d => d.cuarentena > 0).map((d, i) => `
+      <div class="cuar">
+        <span>Cuarentena en ${esc(d.ruta)}: ${fmt(d.cuarentena)} (aún no liberan espacio)</span>
+        <button class="peligro" data-disco="${i}">Vaciar definitivamente</button>
+      </div>`).join("");
+    $("cuarentenas").querySelectorAll("button").forEach((b, k) => {
+      const disco = discos.filter(d => d.cuarentena > 0)[k].ruta;
+      b.onclick = () => vaciar(disco);
+    });
+  }
+
+  async function vaciar(disco) {
+    if (!confirm("Esto elimina PARA SIEMPRE los archivos de la cuarentena de " + disco + ". ¿Continuar?")) return;
+    try {
+      const r = await api("/api/vaciar", { disco });
+      $("estado").textContent = "Espacio liberado: " + fmt(r.liberado);
+      cargarDiscos();
+    } catch (e) { alert(e.message); }
+  }
+
+  function dibujar() {
+    $("resultado").innerHTML = grupos.map((g, i) => `
+      <div class="grupo">
+        <div class="gt">Grupo ${i + 1}: ${g.rutas.length} archivos de ${fmt(g.tamano)}</div>
+        ${g.rutas.map((r, k) => `
+          <label><input type="checkbox" data-g="${i}" data-k="${k}"> ${esc(r)}</label>`).join("")}
+      </div>`).join("");
+    $("acciones").hidden = !grupos.length;
+    actualizarSeleccion();
+  }
+
+  function marcadas() {
+    return [...document.querySelectorAll("#resultado input:checked")];
+  }
+
+  function actualizarSeleccion() {
+    const m = marcadas();
+    const total = m.reduce((s, x) => s + grupos[x.dataset.g].tamano, 0);
+    $("seleccion").textContent = m.length ? `${m.length} archivos · ${fmt(total)}` : "Nada seleccionado";
+  }
+
+  $("resultado").addEventListener("change", actualizarSeleccion);
+
+  $("btnAuto").onclick = () => {
+    // Deja sin marcar la primera copia de cada grupo (esa se conserva)
+    document.querySelectorAll("#resultado input").forEach(x => { x.checked = x.dataset.k !== "0"; });
+    actualizarSeleccion();
+  };
+
+  $("btnEscanear").onclick = async () => {
+    $("estado").textContent = "Escaneando... puede tardar en discos grandes.";
+    $("btnEscanear").disabled = true;
+    try {
+      const r = await api("/api/escanear", { disco: $("disco").value, subcarpeta: $("sub").value });
+      grupos = r.grupos;
+      dibujar();
+      $("estado").textContent = grupos.length
+        ? `${grupos.length} grupos de duplicados · espacio recuperable: ${fmt(r.recuperable)}`
+        : "No se encontraron duplicados.";
+    } catch (e) {
+      $("estado").textContent = e.message;
+    }
+    $("btnEscanear").disabled = false;
+  };
+
+  $("btnMover").onclick = async () => {
+    const rutas = marcadas().map(x => grupos[x.dataset.g].rutas[x.dataset.k]);
+    if (!rutas.length) { alert("No has seleccionado archivos."); return; }
+    if (!confirm(`Se moverán ${rutas.length} archivos a la carpeta de cuarentena. Podrás recuperarlos hasta que la vacíes. ¿Continuar?`)) return;
+    try {
+      const r = await api("/api/cuarentena", { rutas });
+      $("estado").textContent = `Movidos ${r.movidos} archivos (${fmt(r.tamano)}) a cuarentena` +
+        (r.errores.length ? ` · ${r.errores.length} con error` : "");
+      const fallidas = new Set(r.errores);
+      const movidas = new Set(rutas.filter(x => !fallidas.has(x)));
+      grupos = grupos
+        .map(g => ({ tamano: g.tamano, rutas: g.rutas.filter(x => !movidas.has(x)) }))
+        .filter(g => g.rutas.length > 1);
+      dibujar();
+      cargarDiscos();
+    } catch (e) { alert(e.message); }
+  };
+
+  cargarDiscos();
+</script>
+</body>
+</html>
