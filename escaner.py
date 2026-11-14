@@ -39,7 +39,6 @@ def calcular_hash(ruta, bloque=1024 * 1024):
 def agrupar_por_tamano(carpeta):
     grupos = defaultdict(list)
     for raiz, carpetas, archivos in os.walk(carpeta):
-        # No entrar a carpetas protegidas (sistema, cuarentena, etc.)
         carpetas[:] = [c for c in carpetas if c.lower() not in CARPETAS_PROTEGIDAS]
         for nombre in archivos:
             ruta = os.path.join(raiz, nombre)
@@ -67,6 +66,29 @@ def buscar_duplicados(carpeta):
             if len(iguales) > 1:
                 duplicados.append((tamano, iguales))
     return duplicados
+
+
+def agrupar_duplicados_desde_metadatos(archivos):
+    """Recibe una lista de dicts {'ruta', 'tamano', 'hash'} desde el navegador
+    y devuelve [(tamano, [rutas...]), ...] aplicando las mismas reglas de protección."""
+    por_clave = defaultdict(list)
+    vistas = set()
+
+    for item in archivos:
+        ruta = item["ruta"]
+        tamano = item["tamano"]
+        digest = item["hash"]
+
+        if tamano <= 0 or not digest or ruta in vistas or esta_protegida(ruta):
+            continue
+        vistas.add(ruta)
+        por_clave[(tamano, digest)].append(ruta)
+
+    return [
+        (tamano, rutas)
+        for (tamano, _), rutas in por_clave.items()
+        if len(rutas) > 1
+    ]
 
 
 def mostrar_reporte(duplicados):
