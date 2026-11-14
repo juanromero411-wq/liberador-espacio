@@ -123,4 +123,5 @@ El repositorio está preparado para despliegue continuo (*Auto-Deploy*) desde la
 2. Haz clic en **Elegir carpeta o disco**, selecciona la ruta que deseas analizar y acepta el permiso de edición en el navegador.
 3. Pulsa **Escanear** para listar los grupos de archivos duplicados ordenados por mayor espacio recuperable.
 4. Marca manualmente las copias que deseas retirar o usa **Seleccionar copias automáticamente** (conservará siempre el primer archivo de cada grupo).
-5. Haz clic en **Mover a cuarentena** para trasladar los archivos a `_CUARENTENA`. Si deseas liberar el espacio definitivamente en el disco, pulsa **Vaciar definitivamente** en el banner superior.
+5. Haz clic en **Mover a cuarentena** para trasladar los archivos a `_CUARENTENA`. Si deseas liberar el espacio definitivamente en el disco, pulsa **Vaciar definitivamente**
+6. en el banner superior
