@@ -10,6 +10,7 @@ open("prueba/c.txt", "w").write("hola mundp")
 
 print("Carpeta de prueba creada")
 
+
 from escaner import agrupar_duplicados_desde_metadatos
 
 def probar_metadatos_web():
