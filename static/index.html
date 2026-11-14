@@ -10,15 +10,15 @@
   main { max-width: 860px; margin: 0 auto; padding: 20px 16px 120px; }
   h1 { margin: 0 0 4px; font-size: 26px; }
   .sub { color: #374c79; margin: 0 0 18px; font-size: 14px; }
-  .barra { display: flex; gap: 8px; flex-wrap: wrap; }
-  select, input[type=text] { background: #12224a; color: #fff; border: 1px solid #1d3a7a;
-         border-radius: 10px; padding: 10px 12px; font-size: 15px; }
-  input[type=text] { flex: 1; min-width: 200px; }
+  .barra { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ruta-box { flex: 1; min-width: 220px; background: #12224a; color: #cfe0ff;
+              border: 1px solid #1d3a7a; border-radius: 10px; padding: 10px 12px;
+              font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   button { background: #1f7bff; color: #fff; border: 0; border-radius: 10px;
            padding: 10px 16px; font-size: 15px; cursor: pointer; }
   button.sec { background: #12224a; border: 1px solid #1d3a7a; color: #cfe0ff; }
   button.peligro { background: #d63b4d; }
-  button:disabled { opacity: .5; cursor: wait; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
   #estado { color: #8fa6d6; margin: 14px 0; min-height: 22px; }
   .cuar { background: #12224a; border: 1px solid #1d3a7a; border-radius: 12px; padding: 10px 12px;
           margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
@@ -40,9 +40,9 @@
   <p class="sub">Encuentra archivos duplicados y libera espacio de forma segura.</p>
 
   <div class="barra">
-    <select id="disco"></select>
-    <input type="text" id="sub" placeholder="Subcarpeta (opcional), ej: Users\User\Pictures">
-    <button id="btnEscanear">Escanear</button>
+    <button class="sec" id="btnElegir">Elegir carpeta o disco</button>
+    <div class="ruta-box" id="rutaElegida">Ninguna carpeta seleccionada</div>
+    <button id="btnEscanear" disabled>Escanear</button>
   </div>
 
   <p id="estado"></p>
@@ -57,7 +57,11 @@
 </div>
 
 <script>
+  let rootHandle = null;
   let grupos = [];
+  let registroArchivos = new Map(); // ruta -> { fileHandle, parentHandle, name }
+  let config = { cuarentena: "_CUARENTENA", protegidas: [] };
+
   const $ = id => document.getElementById(id);
   const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -74,35 +78,63 @@
       : undefined;
     const r = await fetch(url, opciones);
     const j = await r.json();
-    if (!r.ok) throw new Error(j.detail || "Error");
+    if (!r.ok) throw new Error(j.detail || "Error en el servidor");
     return j;
   }
 
-  async function cargarDiscos() {
-    const discos = await api("/api/discos");
-    const actual = $("disco").value;
-    $("disco").innerHTML = discos.map(d => `<option value="${esc(d.ruta)}">${esc(d.ruta)}</option>`).join("");
-    if (actual) $("disco").value = actual;
-    if (!discos.length) $("estado").textContent = "No se encontraron discos disponibles.";
-
-    $("cuarentenas").innerHTML = discos.filter(d => d.cuarentena > 0).map((d, i) => `
-      <div class="cuar">
-        <span>Cuarentena en ${esc(d.ruta)}: ${fmt(d.cuarentena)} (aún no liberan espacio)</span>
-        <button class="peligro" data-disco="${i}">Vaciar definitivamente</button>
-      </div>`).join("");
-    $("cuarentenas").querySelectorAll("button").forEach((b, k) => {
-      const disco = discos.filter(d => d.cuarentena > 0)[k].ruta;
-      b.onclick = () => vaciar(disco);
-    });
+  async function calcularHashSHA256(file) {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
   }
 
-  async function vaciar(disco) {
-    if (!confirm("Esto elimina PARA SIEMPRE los archivos de la cuarentena de " + disco + ". ¿Continuar?")) return;
+  async function tamanoDirectorio(dirHandle) {
+    let total = 0;
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind === "file") {
+        try {
+          const f = await entry.getFile();
+          total += f.size;
+        } catch {}
+      } else if (entry.kind === "directory") {
+        total += await tamanoDirectorio(entry);
+      }
+    }
+    return total;
+  }
+
+  async function revisarCuarentena() {
+    if (!rootHandle) return;
     try {
-      const r = await api("/api/vaciar", { disco });
-      $("estado").textContent = "Espacio liberado: " + fmt(r.liberado);
-      cargarDiscos();
-    } catch (e) { alert(e.message); }
+      const cuarHandle = await rootHandle.getDirectoryHandle(config.cuarentena);
+      const tamano = await tamanoDirectorio(cuarHandle);
+      if (tamano > 0) {
+        $("cuarentenas").innerHTML = `
+          <div class="cuar">
+            <span>Cuarentena en ${esc(rootHandle.name)}: ${fmt(tamano)} (aún no liberan espacio)</span>
+            <button class="peligro" id="btnVaciar">Vaciar definitivamente</button>
+          </div>`;
+        $("btnVaciar").onclick = vaciarCuarentena;
+        return;
+      }
+    } catch {}
+    $("cuarentenas").innerHTML = "";
+  }
+
+  async function vaciarCuarentena() {
+    if (!rootHandle) return;
+    if (!confirm(`Esto elimina PARA SIEMPRE los archivos de la cuarentena de ${rootHandle.name}. ¿Continuar?`)) return;
+    try {
+      const cuarHandle = await rootHandle.getDirectoryHandle(config.cuarentena);
+      const liberado = await tamanoDirectorio(cuarHandle);
+      await rootHandle.removeEntry(config.cuarentena, { recursive: true });
+      $("estado").textContent = "Espacio liberado: " + fmt(liberado);
+      await revisarCuarentena();
+    } catch (e) {
+      alert("No se pudo vaciar la cuarentena: " + e.message);
+    }
   }
 
   function dibujar() {
@@ -129,16 +161,89 @@
   $("resultado").addEventListener("change", actualizarSeleccion);
 
   $("btnAuto").onclick = () => {
-    // Deja sin marcar la primera copia de cada grupo (esa se conserva)
     document.querySelectorAll("#resultado input").forEach(x => { x.checked = x.dataset.k !== "0"; });
     actualizarSeleccion();
   };
 
-  $("btnEscanear").onclick = async () => {
-    $("estado").textContent = "Escaneando... puede tardar en discos grandes.";
-    $("btnEscanear").disabled = true;
+  $("btnElegir").onclick = async () => {
+    if (!window.showDirectoryPicker) {
+      $("estado").textContent = "Tu navegador no soporta acceso a carpetas locales. Usa Chrome, Edge o Brave en escritorio.";
+      return;
+    }
     try {
-      const r = await api("/api/escanear", { disco: $("disco").value, subcarpeta: $("sub").value });
+      rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      $("rutaElegida").textContent = rootHandle.name;
+      $("btnEscanear").disabled = false;
+      grupos = [];
+      dibujar();
+      $("estado").textContent = `Carpeta "${rootHandle.name}" lista para escanear.`;
+      await revisarCuarentena();
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        $("estado").textContent = "No se pudo abrir la carpeta: " + e.message;
+      }
+    }
+  };
+
+  $("btnEscanear").onclick = async () => {
+    if (!rootHandle) return;
+    $("btnEscanear").disabled = true;
+    $("btnElegir").disabled = true;
+    registroArchivos.clear();
+    const protegidasSet = new Set(config.protegidas.map(x => x.toLowerCase()));
+    const porTamano = new Map();
+    let explorados = 0;
+
+    try {
+      $("estado").textContent = "Analizando tamaños de archivos...";
+
+      async function recorrer(dirHandle, prefijo) {
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === "directory") {
+            if (protegidasSet.has(entry.name.toLowerCase())) continue;
+            await recorrer(entry, `${prefijo}/${entry.name}`);
+          } else if (entry.kind === "file") {
+            try {
+              const file = await entry.getFile();
+              explorados++;
+              if (explorados % 200 === 0) {
+                $("estado").textContent = `Analizando tamaños... (${explorados} archivos revisados)`;
+              }
+              if (file.size <= 0) continue;
+              const ruta = `${prefijo}/${entry.name}`;
+              registroArchivos.set(ruta, { fileHandle: entry, parentHandle: dirHandle, name: entry.name });
+              if (!porTamano.has(file.size)) porTamano.set(file.size, []);
+              porTamano.get(file.size).push({ ruta, file });
+            } catch {}
+          }
+        }
+      }
+
+      await recorrer(rootHandle, rootHandle.name);
+
+      // Solo calcula SHA-256 de archivos que comparten exactamente el mismo tamaño
+      const candidatos = [];
+      for (const lista of porTamano.values()) {
+        if (lista.length > 1) candidatos.push(...lista);
+      }
+
+      const metadatos = [];
+      for (let i = 0; i < candidatos.length; i++) {
+        if (i % 10 === 0) {
+          $("estado").textContent = `Calculando huellas SHA-256 (${i + 1} de ${candidatos.length} candidatos)...`;
+        }
+        try {
+          const hash = await calcularHashSHA256(candidatos[i].file);
+          metadatos.push({
+            ruta: candidatos[i].ruta,
+            tamano: candidatos[i].file.size,
+            hash
+          });
+        } catch {}
+      }
+
+      $("estado").textContent = "Agrupando duplicados en el servidor...";
+      const r = await api("/api/escanear", { carpeta: rootHandle.name, archivos: metadatos });
       grupos = r.grupos;
       dibujar();
       $("estado").textContent = grupos.length
@@ -147,28 +252,65 @@
     } catch (e) {
       $("estado").textContent = e.message;
     }
+
     $("btnEscanear").disabled = false;
+    $("btnElegir").disabled = false;
   };
 
   $("btnMover").onclick = async () => {
-    const rutas = marcadas().map(x => grupos[x.dataset.g].rutas[x.dataset.k]);
-    if (!rutas.length) { alert("No has seleccionado archivos."); return; }
-    if (!confirm(`Se moverán ${rutas.length} archivos a la carpeta de cuarentena. Podrás recuperarlos hasta que la vacíes. ¿Continuar?`)) return;
+    const elegidas = marcadas().map(x => grupos[x.dataset.g].rutas[x.dataset.k]);
+    if (!elegidas.length) { alert("No has seleccionado archivos."); return; }
+    if (!confirm(`Se moverán ${elegidas.length} archivos a la carpeta de cuarentena. Podrás recuperarlos hasta que la vacíes. ¿Continuar?`)) return;
+
+    $("btnMover").disabled = true;
     try {
-      const r = await api("/api/cuarentena", { rutas });
-      $("estado").textContent = `Movidos ${r.movidos} archivos (${fmt(r.tamano)}) a cuarentena` +
-        (r.errores.length ? ` · ${r.errores.length} con error` : "");
-      const fallidas = new Set(r.errores);
-      const movidas = new Set(rutas.filter(x => !fallidas.has(x)));
+      const permiso = await api("/api/validar-cuarentena", { grupos, elegidas });
+      const cuarDir = await rootHandle.getDirectoryHandle(permiso.cuarentena, { create: true });
+      const loteDir = await cuarDir.getDirectoryHandle(permiso.lote, { create: true });
+
+      const movidas = new Set();
+      let tamanoTotal = 0;
+      let errores = 0;
+
+      for (const ruta of elegidas) {
+        const info = registroArchivos.get(ruta);
+        if (!info) { errores++; continue; }
+        try {
+          const srcFile = await info.fileHandle.getFile();
+          // Recrea la estructura de subcarpetas dentro de _CUARENTENA/<lote>
+          const partes = ruta.split("/").slice(1, -1);
+          let destinoDir = loteDir;
+          for (const carpeta of partes) {
+            destinoDir = await destinoDir.getDirectoryHandle(carpeta, { create: true });
+          }
+          const destFile = await destinoDir.getFileHandle(info.name, { create: true });
+          const writable = await destFile.createWritable();
+          await srcFile.stream().pipeTo(writable);
+          await info.parentHandle.removeEntry(info.name);
+
+          movidas.add(ruta);
+          tamanoTotal += srcFile.size;
+          registroArchivos.delete(ruta);
+        } catch {
+          errores++;
+        }
+      }
+
+      $("estado").textContent = `Movidos ${movidas.size} archivos (${fmt(tamanoTotal)}) a cuarentena` +
+        (errores ? ` · ${errores} con error` : "");
+
       grupos = grupos
         .map(g => ({ tamano: g.tamano, rutas: g.rutas.filter(x => !movidas.has(x)) }))
         .filter(g => g.rutas.length > 1);
       dibujar();
-      cargarDiscos();
-    } catch (e) { alert(e.message); }
+      await revisarCuarentena();
+    } catch (e) {
+      alert(e.message);
+    }
+    $("btnMover").disabled = false;
   };
 
-  cargarDiscos();
+  api("/api/config").then(c => { config = c; }).catch(() => {});
 </script>
 </body>
 </html>
