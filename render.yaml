@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: liberador-espacio
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/salud
+    autoDeploy: true

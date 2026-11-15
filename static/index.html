@@ -1,316 +1,1614 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Liberador de espacio</title>
-<style>
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #050b1a; color: #fff; font-family: system-ui, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 120px; }
-  h1 { margin: 0 0 4px; font-size: 26px; }
-  .sub { color: #374c79; margin: 0 0 18px; font-size: 14px; }
-  .barra { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .ruta-box { flex: 1; min-width: 220px; background: #12224a; color: #cfe0ff;
-              border: 1px solid #1d3a7a; border-radius: 10px; padding: 10px 12px;
-              font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  button { background: #1f7bff; color: #fff; border: 0; border-radius: 10px;
-           padding: 10px 16px; font-size: 15px; cursor: pointer; }
-  button.sec { background: #12224a; border: 1px solid #1d3a7a; color: #cfe0ff; }
-  button.peligro { background: #d63b4d; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  #estado { color: #8fa6d6; margin: 14px 0; min-height: 22px; }
-  .cuar { background: #12224a; border: 1px solid #1d3a7a; border-radius: 12px; padding: 10px 12px;
-          margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
-          gap: 8px; flex-wrap: wrap; font-size: 14px; }
-  .grupo { background: #0a1430; border: 1px solid #1d3a7a; border-radius: 14px;
-           padding: 12px; margin-bottom: 12px; }
-  .gt { color: #4da3ff; margin-bottom: 6px; font-weight: 600; }
-  label { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 14px;
-          word-break: break-all; }
-  #acciones { position: fixed; left: 0; right: 0; bottom: 0; background: #060d20;
-              border-top: 1px solid #1d3a7a; padding: 12px 16px; display: flex; gap: 10px;
-              align-items: center; flex-wrap: wrap; justify-content: center; }
-  [hidden] { display: none !important; }
-</style>
-</head>
-<body>
-<main>
-  <h1>Liberador de espacio</h1>
-  <p class="sub">Encuentra archivos duplicados y libera espacio de forma segura.</p>
-
-  <div class="barra">
-    <button class="sec" id="btnElegir">Elegir carpeta o disco</button>
-    <div class="ruta-box" id="rutaElegida">Ninguna carpeta seleccionada</div>
-    <button id="btnEscanear" disabled>Escanear</button>
-  </div>
-
-  <p id="estado"></p>
-  <div id="cuarentenas"></div>
-  <div id="resultado"></div>
-</main>
-
-<div id="acciones" hidden>
-  <button class="sec" id="btnAuto">Seleccionar copias automáticamente</button>
-  <span id="seleccion"></span>
-  <button class="peligro" id="btnMover">Mover a cuarentena</button>
-</div>
-
-<script>
-  let rootHandle = null;
-  let grupos = [];
-  let registroArchivos = new Map(); // ruta -> { fileHandle, parentHandle, name }
-  let config = { cuarentena: "_CUARENTENA", protegidas: [] };
-
-  const $ = id => document.getElementById(id);
-  const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-  function fmt(b) {
-    const u = ["B", "KB", "MB", "GB", "TB"];
-    let i = 0;
-    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-    return b.toFixed(i ? 1 : 0) + " " + u[i];
-  }
-
-  async function api(url, datos) {
-    const opciones = datos
-      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) }
-      : undefined;
-    const r = await fetch(url, opciones);
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.detail || "Error en el servidor");
-    return j;
-  }
-
-  async function calcularHashSHA256(file) {
-    const buffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
-
-  async function tamanoDirectorio(dirHandle) {
-    let total = 0;
-    for await (const entry of dirHandle.values()) {
-      if (entry.kind === "file") {
-        try {
-          const f = await entry.getFile();
-          total += f.size;
-        } catch {}
-      } else if (entry.kind === "directory") {
-        total += await tamanoDirectorio(entry);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liberador de espacio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --fondo: #0b1020;
+        --lateral: #11162a;
+        --tarjeta: #161c31;
+        --linea: #242c48;
+        --linea2: #2c3658;
+        --hover: #1c2340;
+        --pista: #232b47;
+        --texto: #eef1fb;
+        --texto2: #dbe2f5;
+        --texto3: #c3cbe3;
+        --tenue: #9aa6c7;
+        --rosa: #e879f9;
       }
-    }
-    return total;
-  }
-
-  async function revisarCuarentena() {
-    if (!rootHandle) return;
-    try {
-      const cuarHandle = await rootHandle.getDirectoryHandle(config.cuarentena);
-      const tamano = await tamanoDirectorio(cuarHandle);
-      if (tamano > 0) {
-        $("cuarentenas").innerHTML = `
-          <div class="cuar">
-            <span>Cuarentena en ${esc(rootHandle.name)}: ${fmt(tamano)} (aún no liberan espacio)</span>
-            <button class="peligro" id="btnVaciar">Vaciar definitivamente</button>
-          </div>`;
-        $("btnVaciar").onclick = vaciarCuarentena;
-        return;
+      * {
+        box-sizing: border-box;
       }
-    } catch {}
-    $("cuarentenas").innerHTML = "";
-  }
-
-  async function vaciarCuarentena() {
-    if (!rootHandle) return;
-    if (!confirm(`Esto elimina PARA SIEMPRE los archivos de la cuarentena de ${rootHandle.name}. ¿Continuar?`)) return;
-    try {
-      const cuarHandle = await rootHandle.getDirectoryHandle(config.cuarentena);
-      const liberado = await tamanoDirectorio(cuarHandle);
-      await rootHandle.removeEntry(config.cuarentena, { recursive: true });
-      $("estado").textContent = "Espacio liberado: " + fmt(liberado);
-      await revisarCuarentena();
-    } catch (e) {
-      alert("No se pudo vaciar la cuarentena: " + e.message);
-    }
-  }
-
-  function dibujar() {
-    $("resultado").innerHTML = grupos.map((g, i) => `
-      <div class="grupo">
-        <div class="gt">Grupo ${i + 1}: ${g.rutas.length} archivos de ${fmt(g.tamano)}</div>
-        ${g.rutas.map((r, k) => `
-          <label><input type="checkbox" data-g="${i}" data-k="${k}"> ${esc(r)}</label>`).join("")}
-      </div>`).join("");
-    $("acciones").hidden = !grupos.length;
-    actualizarSeleccion();
-  }
-
-  function marcadas() {
-    return [...document.querySelectorAll("#resultado input:checked")];
-  }
-
-  function actualizarSeleccion() {
-    const m = marcadas();
-    const total = m.reduce((s, x) => s + grupos[x.dataset.g].tamano, 0);
-    $("seleccion").textContent = m.length ? `${m.length} archivos · ${fmt(total)}` : "Nada seleccionado";
-  }
-
-  $("resultado").addEventListener("change", actualizarSeleccion);
-
-  $("btnAuto").onclick = () => {
-    document.querySelectorAll("#resultado input").forEach(x => { x.checked = x.dataset.k !== "0"; });
-    actualizarSeleccion();
-  };
-
-  $("btnElegir").onclick = async () => {
-    if (!window.showDirectoryPicker) {
-      $("estado").textContent = "Tu navegador no soporta acceso a carpetas locales. Usa Chrome, Edge o Brave en escritorio.";
-      return;
-    }
-    try {
-      rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-      $("rutaElegida").textContent = rootHandle.name;
-      $("btnEscanear").disabled = false;
-      grupos = [];
-      dibujar();
-      $("estado").textContent = `Carpeta "${rootHandle.name}" lista para escanear.`;
-      await revisarCuarentena();
-    } catch (e) {
-      if (e.name !== "AbortError") {
-        $("estado").textContent = "No se pudo abrir la carpeta: " + e.message;
+      body {
+        margin: 0;
+        background: var(--fondo);
+        color: var(--texto);
+        font-family: Poppins, system-ui, sans-serif;
       }
-    }
-  };
+      a {
+        color: #7dd3fc;
+      }
+      button {
+        font-family: inherit;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .ic {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      .tenue {
+        color: var(--tenue);
+      }
+      .app {
+        display: flex;
+        flex-wrap: wrap;
+        min-height: 100vh;
+      }
+      aside {
+        flex: 1 1 260px;
+        max-width: 280px;
+        background: var(--lateral);
+        border-right: 1px solid #1f2742;
+        display: flex;
+        flex-direction: column;
+        padding: 30px 0 24px;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+      }
+      .marca {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 28px;
+      }
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #9333ea, #0e7490);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .marca b {
+        display: block;
+        font-size: 17px;
+        line-height: 1.2;
+      }
+      .marca span {
+        font-size: 12px;
+        color: var(--tenue);
+      }
+      .seccion {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 28px;
+        margin: 26px 0 8px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--rosa);
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 11px 28px;
+        font-size: 14px;
+        color: var(--texto3);
+        text-decoration: none;
+        background: none;
+        border: 0;
+        border-left: 4px solid transparent;
+        padding-left: 24px;
+        cursor: pointer;
+        text-align: left;
+      }
+      .nav:hover {
+        color: #fff;
+      }
+      .nav.activo {
+        background: linear-gradient(90deg, #3b2470, var(--lateral));
+        color: #fff;
+        border-left-color: #c084fc;
+      }
+      .cnt {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--tenue);
+      }
+      .lotes {
+        padding: 4px 28px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 13px;
+      }
+      .lote {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--texto3);
+      }
+      .reporte {
+        margin: auto 20px 0;
+        padding-top: 28px;
+      }
+      .reporte > div {
+        background: var(--tarjeta);
+        border: 1px solid var(--linea);
+        border-radius: 16px;
+        padding: 18px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 12px;
+        padding: 0 18px;
+        min-height: 44px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #fff;
+        cursor: pointer;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-p {
+        background: linear-gradient(90deg, #9333ea, #6d28d9);
+      }
+      .btn-c {
+        background: linear-gradient(90deg, #0e7490, #1d4ed8);
+      }
+      .btn-s {
+        background: var(--hover);
+        border: 1px solid var(--linea2);
+        color: var(--texto2);
+      }
+      .btn-d {
+        background: linear-gradient(90deg, #be185d, #b91c1c);
+      }
+      .btn-vaciar {
+        margin-top: 8px;
+        justify-content: center;
+        color: #fda4af;
+        border-color: #5b2337;
+      }
+      main {
+        flex: 999 1 640px;
+        min-width: 0;
+        padding: 30px 32px 120px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 14px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 26px;
+        font-weight: 700;
+      }
+      .ruta-box {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--tarjeta);
+        border: 1px solid var(--linea);
+        border-radius: 12px;
+        padding: 0 16px;
+        min-height: 44px;
+        font-size: 14px;
+        color: var(--texto2);
+        flex: 0 1 320px;
+        min-width: 0;
+      }
+      #estado {
+        margin: -8px 0 0;
+        min-height: 20px;
+        font-size: 14px;
+        color: var(--tenue);
+      }
+      #estado.error {
+        color: #fda4af;
+      }
+      #estado.ok {
+        color: #86efac;
+      }
+      .cuerpo {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .col-izq {
+        flex: 999 1 600px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .col-der {
+        flex: 1 1 300px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 20px;
+      }
+      .kpi {
+        border-radius: 18px;
+        padding: 22px 24px;
+        position: relative;
+        overflow: hidden;
+        min-height: 132px;
+      }
+      .kpi::after {
+        content: "";
+        position: absolute;
+        right: -30px;
+        bottom: -40px;
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .kpi-v {
+        background: linear-gradient(135deg, #a21caf, #6d28d9);
+      }
+      .kpi-c {
+        background: linear-gradient(135deg, #0e7490, #1d4ed8);
+      }
+      .kpi-t {
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .kpi-n {
+        margin-top: 14px;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        font-size: 16px;
+      }
+      .kpi-n b {
+        font-size: 44px;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .minis {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .card {
+        background: var(--tarjeta);
+        border: 1px solid var(--linea);
+        border-radius: 18px;
+        padding: 22px;
+      }
+      .mini {
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .mini-ic {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .mini-t {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+      }
+      .mini-t b {
+        display: block;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .tag {
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 999px;
+        padding: 3px 10px;
+        white-space: nowrap;
+      }
+      .tag-videos {
+        background: #133a44;
+        color: #67e8f9;
+      }
+      .tag-imagenes {
+        background: #172a55;
+        color: #93c5fd;
+      }
+      .tag-documentos {
+        background: #2a1f4d;
+        color: #d8b4fe;
+      }
+      .tag-otros {
+        background: #3b1f4f;
+        color: #f0abfc;
+      }
+      .tag-orig {
+        background: #14432f;
+        color: #86efac;
+      }
+      .card-cab {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .card > h2 {
+        margin-bottom: 18px;
+      }
+      .fases {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 22px;
+      }
+      .fase-cab {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .fase-cab small {
+        display: block;
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--tenue);
+      }
+      .fase-ic {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .pista {
+        height: 8px;
+        border-radius: 99px;
+        background: var(--pista);
+        overflow: hidden;
+      }
+      .relleno {
+        height: 8px;
+        border-radius: 99px;
+        width: 0;
+        transition: width 0.3s;
+      }
+      .relleno.indet {
+        width: 40% !important;
+        animation: barrido 1.2s ease-in-out infinite;
+      }
+      @keyframes barrido {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .relleno.indet {
+          animation: none;
+          width: 100% !important;
+          opacity: 0.5;
+        }
+      }
+      .g-violeta {
+        background: linear-gradient(90deg, #c084fc, #9333ea);
+      }
+      .g-cian {
+        background: linear-gradient(90deg, #22d3ee, #2563eb);
+      }
+      .g-rosa {
+        background: linear-gradient(90deg, #f0abfc, #c026d3);
+      }
+      .donas {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 24px;
+      }
+      .dona-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 24px;
+      }
+      .dona {
+        position: relative;
+        width: 170px;
+        height: 170px;
+        flex-shrink: 0;
+      }
+      .dona-centro {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: var(--tenue);
+      }
+      .dona-centro b {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--texto);
+      }
+      .leyenda {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        flex: 1 1 120px;
+      }
+      .leg {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--texto3);
+      }
+      .punto {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 6px 14px;
+        min-height: 34px;
+        font-size: 13px;
+        border: 1px solid var(--linea2);
+        background: var(--hover);
+        color: var(--texto3);
+        cursor: pointer;
+      }
+      .chip.activo {
+        background: #2a1f4d;
+        border-color: #7c3aed;
+        color: #f3e8ff;
+      }
+      #listaGrupos {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .grupo {
+        background: var(--lateral);
+        border: 1px solid var(--linea);
+        border-radius: 14px;
+        padding: 12px 8px 8px;
+      }
+      .grupo-cab {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 12px 6px;
+      }
+      .grupo-nombre {
+        flex: 1;
+        min-width: 0;
+        font-size: 14px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .fila {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 13px;
+        color: var(--texto2);
+        cursor: pointer;
+      }
+      .fila:hover {
+        background: var(--hover);
+      }
+      .fila input {
+        width: 18px;
+        height: 18px;
+        accent-color: #a855f7;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .ruta {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .vacio {
+        text-align: center;
+        padding: 36px 16px;
+        color: var(--tenue);
+        font-size: 14px;
+      }
+      #pie {
+        font-size: 13px;
+        text-align: center;
+        margin-top: 14px;
+        color: var(--tenue);
+      }
+      .enlace {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: #7dd3fc;
+        font-size: 13px;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      .top {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .top-fila {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      .ver-todos {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 20px;
+        background: var(--hover);
+        border-radius: 10px;
+        padding: 12px 14px;
+        font-size: 13px;
+        text-decoration: none;
+      }
+      .barras {
+        display: flex;
+        align-items: flex-end;
+        gap: 14px;
+        height: 260px;
+        padding: 0 4px;
+        border-bottom: 1px solid var(--linea2);
+        background: repeating-linear-gradient(
+          to top,
+          #1f2742 0 1px,
+          transparent 1px 52px
+        );
+      }
+      .barra-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        height: 100%;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--tenue);
+      }
+      .barra-v {
+        width: 100%;
+        max-width: 28px;
+        border-radius: 6px 6px 0 0;
+        background: linear-gradient(180deg, #22d3ee, #6d28d9);
+        transition: height 0.4s;
+      }
+      .barras-et {
+        display: flex;
+        gap: 14px;
+        padding: 8px 4px 0;
+        font-size: 11px;
+        text-align: center;
+        color: var(--tenue);
+      }
+      .barras-et span {
+        flex: 1;
+      }
+      #acciones {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 14px 32px;
+        background: rgba(11, 16, 32, 0.92);
+        backdrop-filter: blur(8px);
+        border-top: 1px solid var(--linea);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        z-index: 10;
+      }
+      #seleccion {
+        font-size: 14px;
+        color: var(--texto2);
+      }
+      @media (max-width: 960px) {
+        aside {
+          max-width: none;
+          position: static;
+          height: auto;
+        }
+        main {
+          padding: 24px 16px 140px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside>
+        <div class="marca">
+          <div class="logo"><i data-icono="disco"></i></div>
+          <div><b>Liberador</b><span>de espacio</span></div>
+        </div>
 
-  $("btnEscanear").onclick = async () => {
-    if (!rootHandle) return;
-    $("btnEscanear").disabled = true;
-    $("btnElegir").disabled = true;
-    registroArchivos.clear();
-    const protegidasSet = new Set(config.protegidas.map(x => x.toLowerCase()));
-    const porTamano = new Map();
-    let explorados = 0;
+        <div class="seccion"><i data-icono="panel"></i>ANÁLISIS</div>
+        <a class="nav activo" href="#resumen" data-nav>Resumen</a>
+        <a class="nav" href="#duplicados" data-nav
+          >Duplicados<span class="cnt" id="navGrupos"></span
+        ></a>
 
-    try {
-      $("estado").textContent = "Analizando tamaños de archivos...";
+        <div class="seccion"><i data-icono="copias"></i>TIPOS</div>
+        <div id="navTipos"></div>
 
-      async function recorrer(dirHandle, prefijo) {
+        <div class="seccion"><i data-icono="escudo"></i>CUARENTENA</div>
+        <div class="lotes">
+          <div id="lotes"></div>
+          <button class="btn btn-s btn-vaciar" id="btnVaciar" hidden>
+            <i data-icono="papelera"></i>Vaciar definitivamente
+          </button>
+        </div>
+
+        <div class="reporte">
+          <div>
+            <div style="display: flex; align-items: center; justify-content: space-between">
+              <span style="font-size: 14px; font-weight: 600">Reporte de duplicados</span>
+              <span class="tag" style="background: #4a1d3d; color: #f9a8d4">CSV</span>
+            </div>
+            <div class="tenue" style="font-size: 12px; margin: 4px 0 14px">
+              Lista de grupos y rutas del último escaneo
+            </div>
+            <button
+              class="btn btn-p"
+              id="btnReporte"
+              style="width: 100%; justify-content: space-between"
+              disabled
+            >
+              Descargar<i data-icono="descargar"></i>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main id="resumen">
+        <header>
+          <div style="flex: 1 1 260px">
+            <h1>Resumen del análisis</h1>
+            <div class="tenue" style="font-size: 13px; margin-top: 2px" id="subtitulo">
+              Elige una carpeta o disco para comenzar
+            </div>
+          </div>
+          <div class="ruta-box">
+            <span style="color: #67e8f9; display: flex"><i data-icono="carpeta"></i></span>
+            <span class="ruta" id="rutaElegida">Ninguna carpeta seleccionada</span>
+          </div>
+          <button class="btn btn-s" id="btnElegir">Elegir carpeta o disco</button>
+          <button class="btn btn-c" id="btnEscanear" disabled>
+            <i data-icono="escanear"></i><span id="txtEscanear">Escanear</span>
+          </button>
+        </header>
+
+        <p id="estado" role="status"></p>
+
+        <div class="cuerpo">
+          <div class="col-izq">
+            <div class="kpis">
+              <div class="kpi kpi-v">
+                <div class="kpi-t">Espacio recuperable</div>
+                <div class="kpi-n"><b id="kRec">0</b><span id="kRecU">B</span></div>
+              </div>
+              <div class="kpi kpi-c">
+                <div class="kpi-t">Copias duplicadas</div>
+                <div class="kpi-n"><b id="kCopias">0</b><span id="kGrupos">en 0 grupos</span></div>
+              </div>
+              <div class="minis">
+                <div class="card mini">
+                  <div class="mini-ic" style="background: linear-gradient(135deg, #e879f9, #9333ea)">
+                    <i data-icono="archivo"></i>
+                  </div>
+                  <div class="mini-t">Analizados<b id="kAnal">0</b></div>
+                  <span class="tag tag-otros" id="kHash">0 hash</span>
+                </div>
+                <div class="card mini">
+                  <div class="mini-ic" style="background: linear-gradient(135deg, #22d3ee, #2563eb)">
+                    <i data-icono="escudo"></i>
+                  </div>
+                  <div class="mini-t">En cuarentena<b id="kCuar">0 B</b></div>
+                  <span class="tag tag-videos" id="kCuarTag">vacía</span>
+                </div>
+              </div>
+            </div>
+
+            <section class="card">
+              <div class="card-cab">
+                <h2>Progreso del escaneo</h2>
+                <span class="tenue" style="font-size: 13px" id="progresoTotal">Sin iniciar</span>
+              </div>
+              <div class="fases">
+                <div>
+                  <div class="fase-cab">
+                    <div class="fase-ic" style="background: #2a1f4d; color: #d8b4fe"><i data-icono="carpeta"></i></div>
+                    <div>1. Tamaños<small id="f1d">En espera</small></div>
+                  </div>
+                  <div class="pista"><div class="relleno g-violeta" id="f1b"></div></div>
+                </div>
+                <div>
+                  <div class="fase-cab">
+                    <div class="fase-ic" style="background: #13314a; color: #7dd3fc"><i data-icono="hash"></i></div>
+                    <div>2. Huellas SHA-256<small id="f2d">En espera</small></div>
+                  </div>
+                  <div class="pista"><div class="relleno g-cian" id="f2b"></div></div>
+                </div>
+                <div>
+                  <div class="fase-cab">
+                    <div class="fase-ic" style="background: #3b1f4f; color: #f0abfc"><i data-icono="capas"></i></div>
+                    <div>3. Agrupación<small id="f3d">En espera</small></div>
+                  </div>
+                  <div class="pista"><div class="relleno g-rosa" id="f3b"></div></div>
+                </div>
+              </div>
+            </section>
+
+            <div class="donas">
+              <section class="card">
+                <h2>Duplicados por tipo</h2>
+                <div class="dona-wrap">
+                  <div class="dona">
+                    <div id="donaTipos"></div>
+                    <div class="dona-centro"><b id="donaTiposTotal">0 B</b>recuperable</div>
+                  </div>
+                  <div class="leyenda" id="leyendaTipos"></div>
+                </div>
+              </section>
+              <section class="card">
+                <h2>Selección vs pendiente</h2>
+                <div class="dona-wrap">
+                  <div class="dona">
+                    <div id="donaSel"></div>
+                    <div class="dona-centro">A liberar<b id="donaSelTotal">0 B</b></div>
+                  </div>
+                  <div class="leyenda" style="gap: 16px">
+                    <div class="leg">
+                      <span class="punto" style="background: #d946ef"></span>
+                      <div><div class="tenue" style="font-size: 12px" id="pctSel">0%</div>Seleccionado</div>
+                    </div>
+                    <div class="leg">
+                      <span class="punto" style="background: #5b21b6"></span>
+                      <div><div class="tenue" style="font-size: 12px" id="pctPend">0%</div>Pendiente</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section class="card" id="duplicados">
+              <div class="card-cab" style="margin-bottom: 16px">
+                <h2>Grupos de duplicados</h2>
+                <div class="chips" id="chips"></div>
+              </div>
+              <div id="listaGrupos"></div>
+              <div id="pie"></div>
+            </section>
+          </div>
+
+          <div class="col-der">
+            <section class="card">
+              <h2>Grupos que más ocupan</h2>
+              <div class="top" id="top"></div>
+              <a class="ver-todos" href="#duplicados">Ver todos los grupos<i data-icono="flecha"></i></a>
+            </section>
+
+            <section class="card">
+              <h2>Espacio por tamaño de archivo</h2>
+              <div class="barras" id="barras"></div>
+              <div class="barras-et">
+                <span>&lt;1 MB</span><span>1-10 MB</span><span>10-100 MB</span><span>0,1-1 GB</span><span>&gt;1 GB</span>
+              </div>
+              <div class="tenue" style="font-size: 12px; margin-top: 12px">
+                Espacio recuperable por rango de tamaño
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="acciones" hidden>
+      <button class="btn btn-s" id="btnAuto">
+        <i data-icono="doblecheck"></i>Seleccionar copias automáticamente
+      </button>
+      <span id="seleccion"></span>
+      <button class="btn btn-d" id="btnMover">
+        <i data-icono="caja"></i>Mover a cuarentena
+      </button>
+    </div>
+
+    <script>
+      const ICONOS = {
+        disco:
+          '<line x1="22" x2="2" y1="12" y2="12"></line><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" x2="6.01" y1="16" y2="16"></line><line x1="10" x2="10.01" y1="16" y2="16"></line>',
+        panel:
+          '<rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect>',
+        copias:
+          '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>',
+        video:
+          '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"></path><rect x="2" y="6" width="14" height="12" rx="2"></rect>',
+        imagen:
+          '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>',
+        documento:
+          '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
+        archivo:
+          '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path>',
+        caja:
+          '<rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path>',
+        escudo:
+          '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path>',
+        papelera:
+          '<path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line>',
+        descargar:
+          '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line>',
+        carpeta:
+          '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path>',
+        escanear:
+          '<path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><circle cx="12" cy="12" r="3"></circle><path d="m16 16-1.9-1.9"></path>',
+        hash:
+          '<line x1="4" x2="20" y1="9" y2="9"></line><line x1="4" x2="20" y1="15" y2="15"></line><line x1="10" x2="8" y1="3" y2="21"></line><line x1="16" x2="14" y1="3" y2="21"></line>',
+        capas:
+          '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path>',
+        doblecheck:
+          '<path d="M18 6 7 17l-5-5"></path><path d="m22 10-7.5 7.5L13 16"></path>',
+        flecha: '<path d="m9 18 6-6-6-6"></path>',
+      };
+
+      const CATEGORIAS = [
+        {
+          id: "videos",
+          nombre: "Videos",
+          color: "#22d3ee",
+          icono: "video",
+          grad: "g-cian",
+          ext: ["mp4", "mov", "avi", "mkv", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "mts", "vob"],
+        },
+        {
+          id: "imagenes",
+          nombre: "Imágenes",
+          color: "#3b82f6",
+          icono: "imagen",
+          grad: "g-cian",
+          ext: ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "heic", "heif", "raw", "cr2", "nef", "arw", "dng", "svg", "ico", "psd"],
+        },
+        {
+          id: "documentos",
+          nombre: "Documentos",
+          color: "#a855f7",
+          icono: "documento",
+          grad: "g-violeta",
+          ext: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "txt", "csv", "md", "epub"],
+        },
+        {
+          id: "otros",
+          nombre: "Otros",
+          color: "#f0abfc",
+          icono: "caja",
+          grad: "g-rosa",
+          ext: [],
+        },
+      ];
+      const CAT = Object.fromEntries(CATEGORIAS.map((c) => [c.id, c]));
+      const EXT_CAT = new Map();
+      CATEGORIAS.forEach((c) => c.ext.forEach((e) => EXT_CAT.set(e, c.id)));
+
+      const RANGOS = [
+        [0, 1024 ** 2],
+        [1024 ** 2, 10 * 1024 ** 2],
+        [10 * 1024 ** 2, 100 * 1024 ** 2],
+        [100 * 1024 ** 2, 1024 ** 3],
+        [1024 ** 3, Infinity],
+      ];
+      const PAGINA = 25;
+      const CIRC = 2 * Math.PI * 60;
+
+      let rootHandle = null;
+      let grupos = [];
+      let registroArchivos = new Map();
+      let config = { cuarentena: "_CUARENTENA", protegidas: [] };
+      let seleccion = new Set();
+      let tamanoDe = new Map();
+      let filtro = "todos";
+      let visibles = PAGINA;
+      let escaneado = false;
+      let escaneando = false;
+      let stats = { analizados: 0, candidatos: 0 };
+      let cuarentenaTotal = 0;
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      const num = (n) => n.toLocaleString("es-CO");
+
+      function icono(nombre, color) {
+        const estilo = color ? ` style="color:${color}"` : "";
+        return `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"${estilo}>${ICONOS[nombre]}</svg>`;
+      }
+
+      function partes(b) {
+        const u = ["B", "KB", "MB", "GB", "TB"];
+        let i = 0;
+        while (b >= 1024 && i < u.length - 1) {
+          b /= 1024;
+          i++;
+        }
+        const d = i ? 1 : 0;
+        return [
+          b.toLocaleString("es-CO", { minimumFractionDigits: d, maximumFractionDigits: d }),
+          u[i],
+        ];
+      }
+
+      function fmt(b) {
+        return partes(b).join(" ");
+      }
+
+      function duracion(ms) {
+        const s = Math.max(1, Math.round(ms / 1000));
+        return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+      }
+
+      function nombreDe(ruta) {
+        return ruta.split("/").pop();
+      }
+
+      function categoria(ruta) {
+        const nombre = nombreDe(ruta);
+        const punto = nombre.lastIndexOf(".");
+        if (punto < 1) return "otros";
+        return EXT_CAT.get(nombre.slice(punto + 1).toLowerCase()) || "otros";
+      }
+
+      const recuperableDe = (g) => g.tamano * (g.rutas.length - 1);
+      const totalRecuperable = () => grupos.reduce((s, g) => s + recuperableDe(g), 0);
+
+      function estado(texto, tipo) {
+        $("estado").textContent = texto || "";
+        $("estado").className = tipo || "";
+      }
+
+      async function api(url, datos) {
+        const opciones = datos
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(datos),
+            }
+          : undefined;
+        const r = await fetch(url, opciones);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.detail || "Error en el servidor");
+        return j;
+      }
+
+      async function calcularHashSHA256(file) {
+        const buffer = await file.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+        return Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      }
+
+      async function tamanoDirectorio(dirHandle) {
+        let total = 0;
         for await (const entry of dirHandle.values()) {
-          if (entry.kind === "directory") {
-            if (protegidasSet.has(entry.name.toLowerCase())) continue;
-            await recorrer(entry, `${prefijo}/${entry.name}`);
-          } else if (entry.kind === "file") {
+          if (entry.kind === "file") {
             try {
-              const file = await entry.getFile();
-              explorados++;
-              if (explorados % 200 === 0) {
-                $("estado").textContent = `Analizando tamaños... (${explorados} archivos revisados)`;
+              const f = await entry.getFile();
+              total += f.size;
+            } catch {}
+          } else if (entry.kind === "directory") {
+            total += await tamanoDirectorio(entry);
+          }
+        }
+        return total;
+      }
+
+      function fase(n, detalle, pct) {
+        $(`f${n}d`).textContent = detalle;
+        const barra = $(`f${n}b`);
+        barra.classList.toggle("indet", pct == null);
+        barra.style.width = pct == null ? "" : `${pct}%`;
+      }
+
+      function reiniciarFases() {
+        [1, 2, 3].forEach((n) => fase(n, "En espera", 0));
+        $("progresoTotal").textContent = "Sin iniciar";
+      }
+
+      function dona(segmentos) {
+        const activos = segmentos.filter((s) => s.valor > 0);
+        const total = activos.reduce((s, x) => s + x.valor, 0);
+        const hueco = activos.length > 1 ? 2 : 0;
+        let desplazamiento = 0;
+        let arcos = "";
+        activos.forEach((s) => {
+          const largo = (s.valor / total) * CIRC;
+          arcos += `<circle cx="80" cy="80" r="60" fill="none" stroke="${s.color}" stroke-width="20" stroke-dasharray="${Math.max(largo - hueco, 0.5)} ${CIRC}" stroke-dashoffset="${-desplazamiento}"></circle>`;
+          desplazamiento += largo;
+        });
+        return `<svg viewBox="0 0 160 160" width="170" height="170" aria-hidden="true"><g transform="rotate(-90 80 80)"><circle cx="80" cy="80" r="60" fill="none" stroke="#232b47" stroke-width="20"></circle>${arcos}</g></svg>`;
+      }
+
+      function porCategoria() {
+        const por = Object.fromEntries(CATEGORIAS.map((c) => [c.id, 0]));
+        grupos.forEach((g) => (por[categoria(g.rutas[0])] += recuperableDe(g)));
+        return por;
+      }
+
+      function renderKpis() {
+        const [n, u] = partes(totalRecuperable());
+        $("kRec").textContent = n;
+        $("kRecU").textContent = u;
+        $("kCopias").textContent = num(grupos.reduce((s, g) => s + g.rutas.length - 1, 0));
+        $("kGrupos").textContent = `en ${num(grupos.length)} grupos`;
+        $("kAnal").textContent = num(stats.analizados);
+        $("kHash").textContent = `${num(stats.candidatos)} hash`;
+        $("kCuar").textContent = fmt(cuarentenaTotal);
+        $("kCuarTag").textContent = cuarentenaTotal > 0 ? "sin liberar" : "vacía";
+        $("navGrupos").textContent = escaneado ? num(grupos.length) : "";
+      }
+
+      function renderTipos() {
+        const por = porCategoria();
+        const total = totalRecuperable();
+        $("navTipos").innerHTML = CATEGORIAS.map(
+          (c) =>
+            `<button class="nav${filtro === c.id ? " activo" : ""}" data-filtro="${c.id}">${icono(c.icono)}${c.nombre}<span class="cnt">${escaneado ? fmt(por[c.id]) : ""}</span></button>`,
+        ).join("");
+        $("chips").innerHTML = [{ id: "todos", nombre: "Todos" }, ...CATEGORIAS]
+          .map(
+            (c) =>
+              `<button class="chip${filtro === c.id ? " activo" : ""}" data-filtro="${c.id}">${c.nombre}</button>`,
+          )
+          .join("");
+        $("donaTipos").innerHTML = dona(CATEGORIAS.map((c) => ({ valor: por[c.id], color: c.color })));
+        $("donaTiposTotal").textContent = fmt(total);
+        $("leyendaTipos").innerHTML = CATEGORIAS.map(
+          (c) =>
+            `<div class="leg"><span class="punto" style="background:${c.color}"></span>${c.nombre}<span class="cnt">${total ? Math.round((por[c.id] / total) * 100) : 0}%</span></div>`,
+        ).join("");
+      }
+
+      function bytesSeleccionados() {
+        let total = 0;
+        seleccion.forEach((r) => (total += tamanoDe.get(r) || 0));
+        return total;
+      }
+
+      function renderSeleccion() {
+        const bytes = bytesSeleccionados();
+        const total = totalRecuperable();
+        const pct = total ? (bytes / total) * 100 : 0;
+        const arco =
+          pct > 0
+            ? `<circle cx="80" cy="80" r="60" fill="none" stroke="#d946ef" stroke-width="24" stroke-linecap="round" stroke-dasharray="${(pct / 100) * CIRC} ${CIRC}"></circle>`
+            : "";
+        $("donaSel").innerHTML = `<svg viewBox="0 0 160 160" width="170" height="170" aria-hidden="true"><g transform="rotate(-90 80 80)"><circle cx="80" cy="80" r="60" fill="none" stroke="${total ? "#5b21b6" : "#232b47"}" stroke-width="12"></circle>${arco}</g></svg>`;
+        $("donaSelTotal").textContent = fmt(bytes);
+        const fmtPct = (p) => `${p.toLocaleString("es-CO", { maximumFractionDigits: 1 })}%`;
+        $("pctSel").textContent = fmtPct(pct);
+        $("pctPend").textContent = fmtPct(total ? 100 - pct : 0);
+        $("seleccion").innerHTML = seleccion.size
+          ? `<b>${num(seleccion.size)}</b> archivos · <b>${fmt(bytes)}</b>`
+          : "Nada seleccionado";
+        $("btnMover").disabled = !seleccion.size || escaneando;
+      }
+
+      function renderTop() {
+        const top = [...grupos].sort((a, b) => recuperableDe(b) - recuperableDe(a)).slice(0, 5);
+        if (!top.length) {
+          $("top").innerHTML = `<div class="tenue" style="font-size:13px">${escaneado ? "Sin duplicados" : "Sin datos todavía"}</div>`;
+          return;
+        }
+        const max = recuperableDe(top[0]);
+        $("top").innerHTML = top
+          .map((g) => {
+            const c = CAT[categoria(g.rutas[0])];
+            return `<div><div class="top-fila"><span class="ruta" title="${esc(g.rutas[0])}">${esc(nombreDe(g.rutas[0]))}</span><span class="tenue">${fmt(recuperableDe(g))}</span></div><div class="pista"><div class="relleno ${c.grad}" style="width:${Math.max((recuperableDe(g) / max) * 100, 2)}%"></div></div></div>`;
+          })
+          .join("");
+      }
+
+      function renderTamanos() {
+        const valores = RANGOS.map(([min, max]) =>
+          grupos.filter((g) => g.tamano >= min && g.tamano < max).reduce((s, g) => s + recuperableDe(g), 0),
+        );
+        const mayor = Math.max(...valores);
+        $("barras").innerHTML = valores
+          .map(
+            (v) =>
+              `<div class="barra-col"><span>${v ? partes(v).join(" ") : ""}</span><div class="barra-v" style="height:${mayor ? Math.max((v / mayor) * 88, v ? 2 : 0) : 0}%"></div></div>`,
+          )
+          .join("");
+      }
+
+      function mensajeVacio() {
+        if (!rootHandle) return "Elige una carpeta o disco para comenzar.";
+        if (!escaneado) return "Pulsa Escanear para buscar duplicados.";
+        if (!grupos.length) return "No se encontraron duplicados en esta carpeta.";
+        return "No hay duplicados de este tipo.";
+      }
+
+      function renderGrupos() {
+        const lista = grupos
+          .map((g, i) => ({ g, i }))
+          .filter(({ g }) => filtro === "todos" || categoria(g.rutas[0]) === filtro);
+        const mostrar = lista.slice(0, visibles);
+        $("listaGrupos").innerHTML = mostrar.length
+          ? mostrar
+              .map(({ g, i }) => {
+                const c = CAT[categoria(g.rutas[0])];
+                const filas = g.rutas
+                  .map(
+                    (r, k) =>
+                      `<label class="fila"><input type="checkbox" data-g="${i}" data-k="${k}"${seleccion.has(r) ? " checked" : ""}><span class="ruta" title="${esc(r)}">${esc(r)}</span>${k === 0 ? '<span class="tag tag-orig">Original</span>' : ""}</label>`,
+                  )
+                  .join("");
+                return `<article class="grupo"><div class="grupo-cab">${icono(c.icono, c.color)}<span class="grupo-nombre" title="${esc(nombreDe(g.rutas[0]))}">${esc(nombreDe(g.rutas[0]))}</span><span class="tag tag-${c.id}">${g.rutas.length} copias · ${fmt(g.tamano)} c/u</span></div>${filas}</article>`;
+              })
+              .join("")
+          : `<div class="vacio">${mensajeVacio()}</div>`;
+        $("pie").innerHTML =
+          lista.length > mostrar.length
+            ? `Mostrando ${num(mostrar.length)} de ${num(lista.length)} grupos · <button class="enlace" id="btnMas">Cargar más</button>`
+            : lista.length
+              ? `Mostrando ${num(lista.length)} grupos`
+              : "";
+        $("acciones").hidden = !grupos.length;
+        $("btnReporte").disabled = !grupos.length;
+      }
+
+      function renderTodo() {
+        tamanoDe = new Map();
+        grupos.forEach((g) => g.rutas.forEach((r) => tamanoDe.set(r, g.tamano)));
+        renderKpis();
+        renderTipos();
+        renderSeleccion();
+        renderTop();
+        renderTamanos();
+        renderGrupos();
+      }
+
+      function formatoLote(nombre) {
+        const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(nombre);
+        return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : nombre;
+      }
+
+      async function revisarCuarentena() {
+        cuarentenaTotal = 0;
+        const lotes = [];
+        if (rootHandle) {
+          try {
+            const cuar = await rootHandle.getDirectoryHandle(config.cuarentena);
+            for await (const entry of cuar.values()) {
+              if (entry.kind === "directory") {
+                lotes.push({ nombre: entry.name, tamano: await tamanoDirectorio(entry) });
+              } else {
+                try {
+                  cuarentenaTotal += (await entry.getFile()).size;
+                } catch {}
               }
-              if (file.size <= 0) continue;
-              const ruta = `${prefijo}/${entry.name}`;
-              registroArchivos.set(ruta, { fileHandle: entry, parentHandle: dirHandle, name: entry.name });
-              if (!porTamano.has(file.size)) porTamano.set(file.size, []);
-              porTamano.get(file.size).push({ ruta, file });
+            }
+          } catch {}
+        }
+        lotes.sort((a, b) => b.nombre.localeCompare(a.nombre));
+        cuarentenaTotal += lotes.reduce((s, l) => s + l.tamano, 0);
+        $("lotes").innerHTML = lotes.length
+          ? lotes
+              .slice(0, 5)
+              .map(
+                (l) =>
+                  `<div class="lote"><span>${esc(formatoLote(l.nombre))}</span><span class="tenue">${fmt(l.tamano)}</span></div>`,
+              )
+              .join("") +
+            (lotes.length > 5 ? `<div class="tenue">y ${lotes.length - 5} lotes más</div>` : "")
+          : `<div class="tenue">${rootHandle ? "Sin archivos en cuarentena" : "Sin carpeta seleccionada"}</div>`;
+        $("btnVaciar").hidden = cuarentenaTotal <= 0;
+        renderKpis();
+      }
+
+      async function vaciarCuarentena() {
+        if (!rootHandle) return;
+        if (
+          !confirm(
+            `Esto elimina PARA SIEMPRE los archivos de la cuarentena de ${rootHandle.name}. ¿Continuar?`,
+          )
+        )
+          return;
+        try {
+          const cuarHandle = await rootHandle.getDirectoryHandle(config.cuarentena);
+          const liberado = await tamanoDirectorio(cuarHandle);
+          await rootHandle.removeEntry(config.cuarentena, { recursive: true });
+          estado("Espacio liberado: " + fmt(liberado), "ok");
+          await revisarCuarentena();
+        } catch (e) {
+          alert("No se pudo vaciar la cuarentena: " + e.message);
+        }
+      }
+
+      function bloquear(si) {
+        escaneando = si;
+        $("btnEscanear").disabled = si || !rootHandle;
+        $("btnElegir").disabled = si;
+        $("btnAuto").disabled = si;
+        renderSeleccion();
+      }
+
+      function descargarReporte() {
+        if (!grupos.length) return;
+        const filas = [["grupo", "tipo", "tamano_bytes", "copias", "ruta", "original", "seleccionado"]];
+        grupos.forEach((g, i) => {
+          const tipo = CAT[categoria(g.rutas[0])].nombre;
+          g.rutas.forEach((r, k) =>
+            filas.push([i + 1, tipo, g.tamano, g.rutas.length, r, k === 0 ? "si" : "no", seleccion.has(r) ? "si" : "no"]),
+          );
+        });
+        const csv =
+          "﻿" +
+          filas.map((f) => f.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+        const enlace = document.createElement("a");
+        enlace.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const fecha = new Date().toISOString().slice(0, 10);
+        enlace.download = `duplicados_${rootHandle ? rootHandle.name : "carpeta"}_${fecha}.csv`;
+        enlace.click();
+        setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+      }
+
+      function aplicarFiltro(id, desplazar) {
+        filtro = filtro === id && id !== "todos" ? "todos" : id;
+        visibles = PAGINA;
+        renderTipos();
+        renderGrupos();
+        if (desplazar) $("duplicados").scrollIntoView({ behavior: "smooth" });
+      }
+
+      document.addEventListener("click", (e) => {
+        const f = e.target.closest("[data-filtro]");
+        if (f) aplicarFiltro(f.dataset.filtro, !!f.closest("aside"));
+        const n = e.target.closest("[data-nav]");
+        if (n) {
+          document.querySelectorAll("[data-nav]").forEach((x) => x.classList.toggle("activo", x === n));
+        }
+        if (e.target.id === "btnMas") {
+          visibles += PAGINA;
+          renderGrupos();
+        }
+      });
+
+      $("listaGrupos").addEventListener("change", (e) => {
+        const x = e.target;
+        if (!x.matches('input[type="checkbox"]')) return;
+        const g = grupos[x.dataset.g];
+        const ruta = g.rutas[x.dataset.k];
+        if (x.checked) {
+          if (g.rutas.every((r) => r === ruta || seleccion.has(r))) {
+            x.checked = false;
+            estado("Debes conservar al menos una copia de cada grupo.", "error");
+            return;
+          }
+          seleccion.add(ruta);
+        } else {
+          seleccion.delete(ruta);
+        }
+        renderSeleccion();
+      });
+
+      $("btnAuto").onclick = () => {
+        seleccion = new Set();
+        grupos.forEach((g) => g.rutas.slice(1).forEach((r) => seleccion.add(r)));
+        renderGrupos();
+        renderSeleccion();
+      };
+
+      $("btnVaciar").onclick = vaciarCuarentena;
+      $("btnReporte").onclick = descargarReporte;
+
+      $("btnElegir").onclick = async () => {
+        if (!window.showDirectoryPicker) {
+          estado(
+            "Tu navegador no soporta acceso a carpetas locales. Usa Chrome, Edge o Brave en escritorio.",
+            "error",
+          );
+          return;
+        }
+        try {
+          rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+          $("rutaElegida").textContent = rootHandle.name;
+          $("rutaElegida").title = rootHandle.name;
+          $("btnElegir").textContent = "Cambiar carpeta";
+          $("txtEscanear").textContent = "Escanear";
+          $("btnEscanear").disabled = false;
+          grupos = [];
+          seleccion = new Set();
+          registroArchivos.clear();
+          escaneado = false;
+          stats = { analizados: 0, candidatos: 0 };
+          filtro = "todos";
+          visibles = PAGINA;
+          reiniciarFases();
+          $("subtitulo").textContent = `Carpeta "${rootHandle.name}" lista para escanear`;
+          estado("");
+          renderTodo();
+          await revisarCuarentena();
+        } catch (e) {
+          if (e.name !== "AbortError") {
+            estado("No se pudo abrir la carpeta: " + e.message, "error");
+          }
+        }
+      };
+
+      $("btnEscanear").onclick = async () => {
+        if (!rootHandle) return;
+        bloquear(true);
+        registroArchivos.clear();
+        seleccion = new Set();
+        const protegidasSet = new Set(config.protegidas.map((x) => x.toLowerCase()));
+        const porTamano = new Map();
+        let explorados = 0;
+        reiniciarFases();
+        estado("");
+        $("progresoTotal").textContent = "En curso...";
+        const t0 = performance.now();
+
+        try {
+          fase(1, "Recorriendo carpetas...", null);
+
+          async function recorrer(dirHandle, prefijo) {
+            for await (const entry of dirHandle.values()) {
+              if (entry.kind === "directory") {
+                if (protegidasSet.has(entry.name.toLowerCase())) continue;
+                await recorrer(entry, `${prefijo}/${entry.name}`);
+              } else if (entry.kind === "file") {
+                try {
+                  const file = await entry.getFile();
+                  explorados++;
+                  if (explorados % 200 === 0) {
+                    fase(1, `${num(explorados)} archivos revisados`, null);
+                  }
+                  if (file.size <= 0) continue;
+                  const ruta = `${prefijo}/${entry.name}`;
+                  registroArchivos.set(ruta, {
+                    fileHandle: entry,
+                    parentHandle: dirHandle,
+                    name: entry.name,
+                  });
+                  if (!porTamano.has(file.size)) porTamano.set(file.size, []);
+                  porTamano.get(file.size).push({ ruta, file });
+                } catch {}
+              }
+            }
+          }
+
+          await recorrer(rootHandle, rootHandle.name);
+          const t1 = performance.now();
+          fase(1, `${num(explorados)} archivos · ${duracion(t1 - t0)}`, 100);
+
+          const candidatos = [];
+          for (const lista of porTamano.values()) {
+            if (lista.length > 1) candidatos.push(...lista);
+          }
+
+          const metadatos = [];
+          fase(2, `0 de ${num(candidatos.length)} candidatos`, 0);
+          for (let i = 0; i < candidatos.length; i++) {
+            if (i % 10 === 0) {
+              fase(2, `${num(i)} de ${num(candidatos.length)} candidatos`, (i / candidatos.length) * 100);
+            }
+            try {
+              const hash = await calcularHashSHA256(candidatos[i].file);
+              metadatos.push({
+                ruta: candidatos[i].ruta,
+                tamano: candidatos[i].file.size,
+                hash,
+              });
             } catch {}
           }
-        }
-      }
+          const t2 = performance.now();
+          fase(2, `${num(candidatos.length)} candidatos · ${duracion(t2 - t1)}`, 100);
 
-      await recorrer(rootHandle, rootHandle.name);
-
-      // Solo calcula SHA-256 de archivos que comparten exactamente el mismo tamaño
-      const candidatos = [];
-      for (const lista of porTamano.values()) {
-        if (lista.length > 1) candidatos.push(...lista);
-      }
-
-      const metadatos = [];
-      for (let i = 0; i < candidatos.length; i++) {
-        if (i % 10 === 0) {
-          $("estado").textContent = `Calculando huellas SHA-256 (${i + 1} de ${candidatos.length} candidatos)...`;
-        }
-        try {
-          const hash = await calcularHashSHA256(candidatos[i].file);
-          metadatos.push({
-            ruta: candidatos[i].ruta,
-            tamano: candidatos[i].file.size,
-            hash
+          fase(3, "Agrupando en el servidor...", null);
+          const r = await api("/api/escanear", {
+            carpeta: rootHandle.name,
+            archivos: metadatos,
           });
-        } catch {}
-      }
-
-      $("estado").textContent = "Agrupando duplicados en el servidor...";
-      const r = await api("/api/escanear", { carpeta: rootHandle.name, archivos: metadatos });
-      grupos = r.grupos;
-      dibujar();
-      $("estado").textContent = grupos.length
-        ? `${grupos.length} grupos de duplicados · espacio recuperable: ${fmt(r.recuperable)}`
-        : "No se encontraron duplicados.";
-    } catch (e) {
-      $("estado").textContent = e.message;
-    }
-
-    $("btnEscanear").disabled = false;
-    $("btnElegir").disabled = false;
-  };
-
-  $("btnMover").onclick = async () => {
-    const elegidas = marcadas().map(x => grupos[x.dataset.g].rutas[x.dataset.k]);
-    if (!elegidas.length) { alert("No has seleccionado archivos."); return; }
-    if (!confirm(`Se moverán ${elegidas.length} archivos a la carpeta de cuarentena. Podrás recuperarlos hasta que la vacíes. ¿Continuar?`)) return;
-
-    $("btnMover").disabled = true;
-    try {
-      const permiso = await api("/api/validar-cuarentena", { grupos, elegidas });
-      const cuarDir = await rootHandle.getDirectoryHandle(permiso.cuarentena, { create: true });
-      const loteDir = await cuarDir.getDirectoryHandle(permiso.lote, { create: true });
-
-      const movidas = new Set();
-      let tamanoTotal = 0;
-      let errores = 0;
-
-      for (const ruta of elegidas) {
-        const info = registroArchivos.get(ruta);
-        if (!info) { errores++; continue; }
-        try {
-          const srcFile = await info.fileHandle.getFile();
-          // Recrea la estructura de subcarpetas dentro de _CUARENTENA/<lote>
-          const partes = ruta.split("/").slice(1, -1);
-          let destinoDir = loteDir;
-          for (const carpeta of partes) {
-            destinoDir = await destinoDir.getDirectoryHandle(carpeta, { create: true });
-          }
-          const destFile = await destinoDir.getFileHandle(info.name, { create: true });
-          const writable = await destFile.createWritable();
-          await srcFile.stream().pipeTo(writable);
-          await info.parentHandle.removeEntry(info.name);
-
-          movidas.add(ruta);
-          tamanoTotal += srcFile.size;
-          registroArchivos.delete(ruta);
-        } catch {
-          errores++;
+          const t3 = performance.now();
+          grupos = r.grupos;
+          escaneado = true;
+          stats = { analizados: explorados, candidatos: candidatos.length };
+          filtro = "todos";
+          visibles = PAGINA;
+          fase(3, `${num(grupos.length)} grupos · ${duracion(t3 - t2)}`, 100);
+          $("progresoTotal").textContent = `Completado en ${duracion(t3 - t0)}`;
+          $("txtEscanear").textContent = "Escanear de nuevo";
+          const hora = new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+          $("subtitulo").textContent = `Escaneado a las ${hora} · solo se enviaron metadatos al servidor`;
+          renderTodo();
+          estado(
+            grupos.length
+              ? `${num(grupos.length)} grupos de duplicados · espacio recuperable: ${fmt(r.recuperable)}`
+              : "No se encontraron duplicados.",
+            grupos.length ? "ok" : "",
+          );
+        } catch (e) {
+          [1, 2, 3].forEach((n) => $(`f${n}b`).classList.remove("indet"));
+          $("progresoTotal").textContent = "Interrumpido";
+          estado(e.message, "error");
         }
-      }
 
-      $("estado").textContent = `Movidos ${movidas.size} archivos (${fmt(tamanoTotal)}) a cuarentena` +
-        (errores ? ` · ${errores} con error` : "");
+        bloquear(false);
+      };
 
-      grupos = grupos
-        .map(g => ({ tamano: g.tamano, rutas: g.rutas.filter(x => !movidas.has(x)) }))
-        .filter(g => g.rutas.length > 1);
-      dibujar();
-      await revisarCuarentena();
-    } catch (e) {
-      alert(e.message);
-    }
-    $("btnMover").disabled = false;
-  };
+      $("btnMover").onclick = async () => {
+        const elegidas = [...seleccion];
+        if (!elegidas.length) {
+          alert("No has seleccionado archivos.");
+          return;
+        }
+        if (
+          !confirm(
+            `Se moverán ${elegidas.length} archivos a la carpeta de cuarentena. Podrás recuperarlos hasta que la vacíes. ¿Continuar?`,
+          )
+        )
+          return;
 
-  api("/api/config").then(c => { config = c; }).catch(() => {});
-</script>
-</body>
+        $("btnMover").disabled = true;
+        try {
+          const permiso = await api("/api/validar-cuarentena", {
+            grupos,
+            elegidas,
+          });
+          const cuarDir = await rootHandle.getDirectoryHandle(permiso.cuarentena, { create: true });
+          const loteDir = await cuarDir.getDirectoryHandle(permiso.lote, { create: true });
+
+          const movidas = new Set();
+          let tamanoTotal = 0;
+          let errores = 0;
+
+          for (const ruta of elegidas) {
+            const info = registroArchivos.get(ruta);
+            if (!info) {
+              errores++;
+              continue;
+            }
+            try {
+              const srcFile = await info.fileHandle.getFile();
+              const partesRuta = ruta.split("/").slice(1, -1);
+              let destinoDir = loteDir;
+              for (const carpeta of partesRuta) {
+                destinoDir = await destinoDir.getDirectoryHandle(carpeta, { create: true });
+              }
+              const destFile = await destinoDir.getFileHandle(info.name, { create: true });
+              const writable = await destFile.createWritable();
+              await srcFile.stream().pipeTo(writable);
+              await info.parentHandle.removeEntry(info.name);
+
+              movidas.add(ruta);
+              tamanoTotal += srcFile.size;
+              registroArchivos.delete(ruta);
+            } catch {
+              errores++;
+            }
+          }
+
+          estado(
+            `Movidos ${num(movidas.size)} archivos (${fmt(tamanoTotal)}) a cuarentena` +
+              (errores ? ` · ${errores} con error` : ""),
+            errores ? "error" : "ok",
+          );
+
+          movidas.forEach((r) => seleccion.delete(r));
+          grupos = grupos
+            .map((g) => ({
+              tamano: g.tamano,
+              rutas: g.rutas.filter((x) => !movidas.has(x)),
+            }))
+            .filter((g) => g.rutas.length > 1);
+          const vigentes = new Set(grupos.flatMap((g) => g.rutas));
+          seleccion = new Set([...seleccion].filter((r) => vigentes.has(r)));
+          renderTodo();
+          await revisarCuarentena();
+        } catch (e) {
+          alert(e.message);
+        }
+        renderSeleccion();
+      };
+
+      document.querySelectorAll("[data-icono]").forEach((el) => {
+        el.outerHTML = icono(el.dataset.icono);
+      });
+      reiniciarFases();
+      renderTodo();
+      revisarCuarentena();
+
+      api("/api/config")
+        .then((c) => {
+          config = c;
+        })
+        .catch(() => {});
+    </script>
+  </body>
 </html>

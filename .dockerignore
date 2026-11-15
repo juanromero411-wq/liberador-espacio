@@ -1,8 +1,15 @@
 __pycache__/
 *.pyc
+.venv/
 prueba/
+datos/
+_CUARENTENA/
 .git/
 .gitignore
 .vscode/
 .env
+.env.example
 README.md
+pruebas.py
+docker-compose.yml
+render.yaml

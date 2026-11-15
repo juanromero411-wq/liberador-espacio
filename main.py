@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -12,6 +13,8 @@ from escaner import (
 )
 
 app = FastAPI(title="Liberador de espacio")
+
+INDEX = Path(__file__).resolve().parent / "static" / "index.html"
 
 
 class ArchivoMeta(BaseModel):
@@ -37,7 +40,12 @@ class PedidoValidarCuarentena(BaseModel):
 
 @app.get("/")
 def inicio():
-    return FileResponse("static/index.html")
+    return FileResponse(INDEX)
+
+
+@app.get("/api/salud")
+def salud():
+    return {"estado": "ok"}
 
 
 @app.get("/api/config")

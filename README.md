@@ -109,11 +109,21 @@ docker run --rm -v "${PWD}:/app" liberador python pruebas.py
 
 ## Despliegue en Render
 
-El repositorio está preparado para despliegue continuo (*Auto-Deploy*) desde la rama `main` mediante Docker:
+El repositorio está preparado para despliegue continuo (*Auto-Deploy*) desde la rama `main` mediante Docker. Incluye un `render.yaml` (Blueprint) con toda la configuración:
 
-* **Runtime:** `Docker`
-* **Puerto:** Configurado automáticamente mediante la variable de entorno `${PORT:-8000}` en el `Dockerfile`.
+* **Runtime:** `Docker` (usa el `Dockerfile` de la raíz).
+* **Puerto:** Render inyecta la variable `PORT` y uvicorn escucha en ella; en local se usa `8000` por defecto.
+* **Health check:** `GET /api/salud` responde `{"estado": "ok"}`.
+* **Proxy:** uvicorn acepta las cabeceras `X-Forwarded-*` del balanceador de Render.
+* **Seguridad:** el contenedor se ejecuta con un usuario sin privilegios.
 * **Variables de entorno adicionales:** No requiere configuración manual.
+
+Opciones para crear el servicio:
+
+1. **Blueprint:** en Render, *New > Blueprint*, conecta el repositorio de GitHub y Render leerá `render.yaml`.
+2. **Manual:** *New > Web Service*, conecta el repositorio, elige *Language: Docker*, rama `main` y en *Health Check Path* escribe `/api/salud`.
+
+Render sirve la app bajo HTTPS, requisito de la File System Access API.
 
 ---
 
