@@ -7,3 +7,4 @@ prueba/
 _CUARENTENA/
 datos/*
 !datos/.gitkeep
+.env.example

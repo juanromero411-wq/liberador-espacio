@@ -4,9 +4,15 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# Este archivo es el "cerebro" del proyecto: sabe reconocer archivos repetidos
+# y qué carpetas no se deben tocar.
+
+# Nombre de la carpeta donde se guardan los archivos antes de borrarlos,
+# como una papelera de reciclaje.
 CUARENTENA = "_CUARENTENA"
 
-# Carpetas que nunca se escanean ni se tocan
+# Carpetas que nunca se escanean ni se tocan, para no dañar el sistema
+# ni los programas instalados.
 CARPETAS_PROTEGIDAS = {
     "windows", "program files", "program files (x86)", "programdata",
     "$recycle.bin", "system volume information", "appdata",
@@ -14,10 +20,12 @@ CARPETAS_PROTEGIDAS = {
 }
 
 
+# Revisa si una ruta pasa por alguna carpeta protegida.
 def esta_protegida(ruta):
     return any(parte.lower() in CARPETAS_PROTEGIDAS for parte in Path(ruta).parts)
 
 
+# Convierte un tamaño en bytes a un texto fácil de leer, como "2.5 GB".
 def formato(cantidad):
     for unidad in ["B", "KB", "MB", "GB"]:
         if cantidad < 1024 or unidad == "GB":
@@ -25,6 +33,8 @@ def formato(cantidad):
         cantidad /= 1024
 
 
+# Saca la "huella digital" de un archivo. Dos archivos con la misma huella
+# son exactamente iguales, aunque tengan nombres distintos.
 def calcular_hash(ruta, bloque=1024 * 1024):
     sha = hashlib.sha256()
     with open(ruta, "rb") as archivo:
@@ -36,6 +46,8 @@ def calcular_hash(ruta, bloque=1024 * 1024):
     return sha.hexdigest()
 
 
+# Recorre una carpeta y agrupa los archivos por tamaño. Solo los que pesan
+# exactamente lo mismo pueden ser copias, así se evita revisar todo a fondo.
 def agrupar_por_tamano(carpeta):
     grupos = defaultdict(list)
     for raiz, carpetas, archivos in os.walk(carpeta):
@@ -51,6 +63,8 @@ def agrupar_por_tamano(carpeta):
     return grupos
 
 
+# Busca duplicados directamente en el computador donde corre el programa
+# (versión de consola, sin la página web).
 def buscar_duplicados(carpeta):
     duplicados = []
     for tamano, rutas in agrupar_por_tamano(carpeta).items():
@@ -68,6 +82,8 @@ def buscar_duplicados(carpeta):
     return duplicados
 
 
+# Función principal que usa la página web: recibe la lista de archivos
+# (ruta, tamaño y huella) y junta en un mismo grupo los que son idénticos.
 def agrupar_duplicados_desde_metadatos(archivos):
     """Recibe una lista de dicts {'ruta', 'tamano', 'hash'} desde el navegador
     y devuelve [(tamano, [rutas...]), ...] aplicando las mismas reglas de protección."""
@@ -79,11 +95,13 @@ def agrupar_duplicados_desde_metadatos(archivos):
         tamano = item["tamano"]
         digest = item["hash"]
 
+        # Se ignoran archivos vacíos, repetidos en la lista o en carpetas protegidas.
         if tamano <= 0 or not digest or ruta in vistas or esta_protegida(ruta):
             continue
         vistas.add(ruta)
         por_clave[(tamano, digest)].append(ruta)
 
+    # Solo se devuelven los grupos que tienen dos copias o más.
     return [
         (tamano, rutas)
         for (tamano, _), rutas in por_clave.items()
@@ -91,6 +109,7 @@ def agrupar_duplicados_desde_metadatos(archivos):
     ]
 
 
+# Muestra en pantalla el resultado de la versión de consola.
 def mostrar_reporte(duplicados):
     if not duplicados:
         print("No se encontraron duplicados.")
@@ -104,6 +123,7 @@ def mostrar_reporte(duplicados):
     print(f"\nEspacio que se podría liberar: {formato(recuperable)}")
 
 
+# Punto de arranque de la versión de consola, por ejemplo: python escaner.py D:/Fotos
 if __name__ == "__main__":
     carpeta = sys.argv[1] if len(sys.argv) > 1 else "."
     if not os.path.isdir(carpeta):
